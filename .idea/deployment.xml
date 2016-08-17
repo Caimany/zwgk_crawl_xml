@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" autoUpload="On explicit save action" serverName="172.18.8.31">
+    <serverData>
+      <paths name="172.18.8.31">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/ubuntu/work/zwgk_crawl_xml" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/ubuntu/work/zwgk_search" local="$PROJECT_DIR$/../zwgk_search" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+    <option name="myAutoUpload" value="ON_EXPLICIT_SAVE" />
+  </component>
+</project>
