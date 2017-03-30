@@ -7,6 +7,9 @@
           <mappings>
             <mapping deploy="/home/ubuntu/work/zwgk_crawl_xml" local="$PROJECT_DIR$" web="/" />
             <mapping deploy="/home/ubuntu/work/zwgk_search" local="$PROJECT_DIR$/../zwgk_search" />
+            <mapping deploy="/home/ubuntu/work/gb_search" local="$PROJECT_DIR$/../gb_search" />
+            <mapping deploy="/home/ubuntu/work/gb_crawl" local="$PROJECT_DIR$/../gb_crawl" />
+            <mapping deploy="/home/ubuntu/work/wechat_gdweizheng" local="$PROJECT_DIR$/../wechat_gdweizheng" />
           </mappings>
         </serverdata>
       </paths>

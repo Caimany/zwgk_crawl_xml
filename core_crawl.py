@@ -6,16 +6,19 @@ from setting import logging,table_name,mysql_conf
 import xml.etree.cElementTree as ET
 import re,datetime,requests
 from base import base_isourl
-from setting import city_url_dic
-import pickle,os,datetime
-from multiprocessing.dummy import Pool as ThreadPool
-from functools import partial
+from setting import city_url_dic,rconn
+import os,datetime,time
+# from multiprocessing.dummy import Pool as ThreadPool
+# from functools import partial
+# from xml.etree.cElementTree import ParseError
+import MySQLdb,random
+from redis_queue import RedisQueue
 
-# {'0':20160101,'1':20160302}
+print "采集xml前,会查询redis集合中的是否的采集过,如需手动重新采集,请删除redis数据中的历史采集记录..."
+# time.sleep(10)
 
-lastest_dic = {}
 
-pool = ThreadPool(8)
+# pool = ThreadPool(8)
 
 haystack_path = "/home/ubuntu/work/zwgk_search"
 
@@ -27,7 +30,7 @@ def _gen_xml_url(date, city_num, city_url_dic ):
     target_url = re.sub('%year%',date[0:4],target_url_1)
     return target_url
 
-# 日期生成器
+# 日期生成器 生成%Y%m%d 格式的字符串
 def gen_date(start_date, end_date):
     try:
         d_start_date = datetime.datetime.strptime(start_date,'%Y%m%d')
@@ -42,18 +45,7 @@ def gen_date(start_date, end_date):
     except Exception as e:
          print 'EXCEPTION : in gen_date seg awrgs are %s %s , detail fellow  %s'%(start_date,end_date,str(e))
 
-# # 连续处理url
-# def process_xml(start_date,end_date,city_num,city_url_dic):
-#     for _date in gen_date(start_date,end_date):
-#         xml_url = _gen_xml_url(_date,city_num,city_url_dic)
-#         try:
-#             # extract xml
-#             pass
-#         except:
-#             # xml push in redis
-#             # retry_xml:list     city_num +:+ url
-#             pass
-import MySQLdb
+
 class DB():
     connect = None
     def init_db(self):
@@ -79,43 +71,102 @@ def pocess_xml_redis(list_name):
         # city_num:xxxxxx,xxxxxx
         pass
 
-# 传入xml字典,insert到数据库
-def _sql_insert(data,table_name):
+# db = DB().return_db()
+# k = 0
+def _InsertSQLbyDic(data, table_name):
+    db = DB().return_db()
     try:
-
-        # cur = db.cursor()
-        cur_class = DB()
-        db = cur_class.return_db()
         cur = db.cursor()
-        placeholders = ', '.join(['%s'] * len(data))
-        placeholders = placeholders.replace('%s','"%s"')
+        placeholders = ", ".join(['%s'] * len(data))
+        placeholders = placeholders.replace('%s', "%s")
         columns = ', '.join(data.keys())
-        sql = "INSERT INTO %s ( %s ) VALUES ( %s )" % (table_name, columns, placeholders)
 
-        cur.execute(sql%tuple(data.values()))
+        sql = "INSERT INTO %s ( %s ) VALUES ( %s )" % (table_name, columns, placeholders)
+        cur.execute(sql, tuple(data.values()))
+    except Exception as e:
+        raise e
+    finally:
         db.commit()
-    except Exception as e :
-        # print e.args[0],"!!", e.args[1]
-        # duplicate autolink
+
+
+# 删除数据 传入autolink
+def _DeleteSQLbyAutolink(autolink, table_name):
+    db = DB().return_db()
+    cur = db.cursor()
+    sql = '''DELETE FROM %s where autolink = "%s";''' % (table_name, autolink)
+    cur.execute(sql)
+    db.commit()
+    # db.close()
+    print "删除成功"
+
+
+# 查询该信息是否已经插入了sql中,如果是 返回xmldate
+def _QueryIsSQLbyautolink(autolink,city_num, table_name):
+    db = DB().return_db()
+    cur = db.cursor(cursorclass=MySQLdb.cursors.DictCursor)
+    cur.execute('''SELECT xml_date,autolink,id FROM %s  where autolink="%s" and city_num = %s LIMIT 1;''' % (table_name, autolink,city_num))
+    return cur.fetchone()
+
+# 更新autolink
+def _ReplaceSQLbyAutolink(data, table_name):
+
+    db =  DB().return_db()
+    cautolink = data['autolink']
+    ccitynum = data['city_num']
+    # data.pop('autolink')
+    placeholders = ', '.join(['%s'] * len(data))
+    # placeholders = placeholders.replace('%s', "%s")
+    columns = ', '.join(data.keys())
+    sql = '''REPLACE INTO  %s(%s) VALUES(%s);''' % (table_name, columns, placeholders)
+    # print tuple(data.values())
+    # time.sleep(100)
+    db.commit()
+    cur = db.cursor()
+    cur.execute(sql, tuple(data.values()))
+    db.commit()
+
+    # db.close()
+
+
+# 更新
+def _UpdateTable(data,table_name):
+    db =  DB().return_db()
+    sql = '''UPDATE '''+table_name+''' SET {}'''.format(', '.join('{}=%s'.format(k) for k in data))
+    print sql
+    cur = db.cursor()
+    cur.execute(sql, tuple(data.values()))
+    db.commit()
+
+#判断该信息是否是最新的 strdate='20120303' comdatetime 为datetimetype
+
+
+def _sql_insert(data, table_name):
+    try:
+        _InsertSQLbyDic(data, table_name)
+    except Exception as e:
+
 
         if e.args[0] == 1062:
-            try:
 
-                cur = db.cursor()
-                autolink = data['autolink']
-                del data['autolink']
+            print "%s autolink: %s 已存在"%(data['xml_date'],data['autolink']),
+            # 判断信息是否已经更新
+            if  _QueryIsSQLbyautolink(autolink=data["autolink"],city_num=data["city_num"],table_name=table_name):
+                if datetime.datetime.strptime(str(data['xml_date']), '%Y%m%d') > \
+                        _QueryIsSQLbyautolink(autolink=data["autolink"], city_num=data['city_num'],table_name=table_name)['xml_date']:
+                    print "需要更新"
 
-                update_sql = 'UPDATE '+table_name+' SET {}'.format(', '.join('{}=%s'.format(k) for k in data) + ' WHERE autolink ="%s"'%(autolink) )
-                # update_sql = update_sql.replace('%s','"%s"')
-                # print update_sql
-                cur.execute(update_sql,data.values())
-                db.commit()
+                    # _UpdateTable(data,table_name)
+                    q=RedisQueue('removed pk')
+                    q.put(_QueryIsSQLbyautolink(autolink=data["autolink"], city_num=data['city_num'],table_name=table_name)['id'])
 
-            except Exception as e:
-                print "update fail! %s"%(str(e))
-        else:
-            print str(e)
-    pass
+                    _ReplaceSQLbyAutolink(data, table_name)
+
+                else:
+                    pass
+            else:
+                print "可能错误 %s:%s "%(data['city_num'],data['xml_date'])
+
+            print ''
 
 def _clear_publisher(publisher_name,url):
     # 规则化发布机构名称
@@ -147,21 +198,25 @@ def _extend_xml_dic(data):
     else:
         data.update({'clear_publisher':''})
 
-    # issued
+    # issued,provincial_office
     if data['city_num'] == 0:
         data.update({'issued':(data['URL'].split('/')[-1]).split('_')[0][1:9]})
+        if re.search('http://zwgk.gd.gov.cn/006939748/',data['URL']):
+            # 办公厅
+            data.update({'provincial_office':50})
+        else:
+            # 省直
+            data.update({'provincial_office':30})
+
 
     return data
 
 # 传入xml地址,insert到数据库
 def crawl_xml(xmlurl,city_num,xml_date):
     try:
-        # exml = ET.fromstring(urllib2.urlopen(xmlurl).read())
         response = requests.get(xmlurl,timeout=1000)
-        # if response == 200:
-            #
-        lastest_dic.update({city_num:xml_date})
-        exml = ET.fromstring(response.text.encode('utf-8'))
+        # exml = ET.fromstring(response.text.encode('utf-8'))
+        exml = ET.fromstring(response.content)
 
         for subxml in exml:
             subxml_dic = {'city_num':city_num,'xml_date':xml_date}
@@ -173,65 +228,42 @@ def crawl_xml(xmlurl,city_num,xml_date):
                     if text:
                         text = text.replace('"',"'")
                         # text = text.replace("'",'"')
-
                     subxml_dic.update({i.tag:text})
                 else:
                     pass
 
+            # for i in  subxml_dic.values():
+            #     print i
             subxml_dic = _extend_xml_dic(subxml_dic)
             # 额外添加xml外的插入的数据
             _sql_insert(subxml_dic,table_name)
+
     except Exception as e:
         print str(e)
         pass
+    finally:
+        redis_set_name = 'city_num_' + str(city_num)
+
+        #记录已采集的xml 无论成功还是失败
+        # rconn.zincrby(redis_set_name, str(xml_date), str(xml_date))
 
 def _single_xml_crawl(date,city_num):
-    print "crawl %s xml ... "%(date)
-    try:
+    str_date = date
+    redis_set_name ='city_num_'+str(city_num)
+    # if not rconn.zscore(name=redis_set_name,value = str_date):
+    if 1:
+        print str(os.getpid()),"-- %s  crawl %s:%s xml ... "%(time.strftime('%m-%d %H:%M',time.localtime()),city_num,date)
         xmlurl = _gen_xml_url(date, city_num, city_url_dic )
-
         crawl_xml(xmlurl=xmlurl,city_num=city_num,xml_date=date)
-        f = open('lastest_dic.pickle', 'wb')
-        # lastest_dic.update({city_num:date})
-        pickle.dump(lastest_dic, f)
-        f.close()
 
-    except Exception as e:
-        print "Fail ! crawl %s xml : %s"%(date,str(e))
 
 def xml_crawl(start_date,end_date,city_num):
-
-    partial_single_xml_crawl = partial(_single_xml_crawl,city_num=city_num)
-
-    pool.map(partial_single_xml_crawl,gen_date(start_date,end_date))
-
-
-    # for _date in gen_date(start_date,end_date):
-    #     print "crawl %s xml ... "%(_date)
-    #     # try:
-    #     #     # print _date
-    #     #     xmlurl = _gen_xml_url(_date, city_num, city_url_dic )
-    #     #     # print xmlurl,city_num,_date
-    #     #     crawl_xml(xmlurl,city_num,_date)
-    #     # except Exception as e:
-    #     #     print "Fail ! crawl %s xml :%s "%(_date,str(e))
-    #     _single_xml_crawl(_date,city_num)
-
-    # _single_xml_crawl(end_date,city_num)
-
-    f = open('lastest_dic.pickle', 'wb')
-    pickle.dump(lastest_dic, f)
-    f.close()
-
-
-    #读 pickle
-    # game_state = pickle.load(open('gamestate.pickle', 'rb'))
-
-
+    p_end_date = (datetime.datetime.strptime(end_date, "%Y%m%d").date() +datetime.timedelta(hours=24)).strftime('%Y%m%d')
+    for subdate in gen_date(start_date,p_end_date):
+        _single_xml_crawl(date=subdate,city_num=city_num)
 
 def update_index(update_age):
     os.chdir(haystack_path)
     os.system('pwd')
+    print "执行 命令 python ./manage.py update_index --age=%s"%(update_age)
     os.system('python ./manage.py update_index --age=%s'%(update_age))
-
-# update_index()

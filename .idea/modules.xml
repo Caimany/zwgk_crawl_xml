@@ -2,6 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/../gb_crawl/.idea/gb_crawl.iml" filepath="$PROJECT_DIR$/../gb_crawl/.idea/gb_crawl.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../gb_search/.idea/gb_search.iml" filepath="$PROJECT_DIR$/../gb_search/.idea/gb_search.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/zwgk_crawl_xml.iml" filepath="$PROJECT_DIR$/.idea/zwgk_crawl_xml.iml" />
       <module fileurl="file://$PROJECT_DIR$/../zwgk_search/.idea/zwgk_search.iml" filepath="$PROJECT_DIR$/../zwgk_search/.idea/zwgk_search.iml" />
     </modules>
